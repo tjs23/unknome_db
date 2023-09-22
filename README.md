@@ -1,2 +1,2 @@
 # unknome_db
-Scripts to create up-to-date an version of the Unknome database 
+Scripts to create an up-to-date version of the Unknome database 
