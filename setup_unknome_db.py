@@ -7,6 +7,7 @@ from requests.adapters import HTTPAdapter, Retry
 from constants import CLUST_ID_CODE, SPECIES_TIEBREAK_PRIORITY, REF_SPECIES, GO_EVIDENCE_WEIGHTS
 from constants import SUBCELL_LOC_TERMS, PROTEIN_EXISTENCES, ALT_UNIPROT_ID_URL, SQL_CHUNK_SIZE, OBSOLETE_TAXID
 from constants import ORGANISM_DBS, ORGANISM_DB_XREF, UNIPROT_CC_FIELDS, UNIPROT_FT_FIELDS, UNIPROT_SEARCH_URL
+from constants import FILE_END
 
 import sql_tables
  
@@ -379,7 +380,7 @@ def calc_knownness(db_file_path):
     print(' .. done')        
     
         
-def add_uniprot_proteins_panther_clusters(panther_class_url, odb_source='Panther17', verbose=False):
+def add_uniprot_proteins_panther_clusters(panther_class_url, proteome_taxids, odb_source='Panther17', data_path='.', verbose=False):
     
     panther_name_dict = get_panther_name_dict(panther_class_url)
 
@@ -396,28 +397,68 @@ def add_uniprot_proteins_panther_clusters(panther_class_url, odb_source='Panther
     session.mount("https://", HTTPAdapter(max_retries=retries))
 
     def get_uniprot_next_link(headers):
-     if "Link" in headers:
-         match = re_next_link.match(headers["Link"])
-         if match:
-             return match.group(1)
+        if "Link" in headers:
+            match = re_next_link.match(headers["Link"])
+            if match:
+                return match.group(1)
 
     def get_uniprot_batch(batch_url):
         while batch_url:
-             response = session.get(batch_url)
-             response.raise_for_status()
-             yield response
-             batch_url = get_uniprot_next_link(response.headers)
+            response = session.get(batch_url)
+            response.raise_for_status()
+            yield response
+            batch_url = get_uniprot_next_link(response.headers)
    
     n_organism_dbs = len(ORGANISM_DBS)
     
-    main_fields = ('id','accession','protein_name', 'gene_primary', 'gene_synonym','gene_oln', 'gene_orf', 'organism_name', 'organism_id',
-                   'lineage','xref_embl', 'xref_pfam', 'xref_interpro','xref_panther', 'go', 'reviewed', 'protein_existence', 'sequence_version', 'sequence')
+    main_fields = ('id','accession', 'protein_name', 'gene_primary', 'gene_synonym', 'gene_oln', 'gene_orf',
+                   'organism_name', 'organism_id', 'lineage', 'xref_embl', 'xref_pfam', 'xref_interpro',
+                   'xref_panther', 'go', 'reviewed', 'protein_existence', 'sequence_version', 'sequence')
     
     fields = main_fields + tuple([ORGANISM_DB_XREF[odb] for odb in ORGANISM_DBS]) + UNIPROT_CC_FIELDS + UNIPROT_FT_FIELDS
-    fields = ','.join(fields)
-   
-    uniprot_url = f"{UNIPROT_SEARCH_URL}query=database:panther&format=tsv&size=500&fields={fields}"
-     
+    fields = ','.join(fields) 
+    
+    cache_dir = os.path.join(data_path, 'uniprot_cache')
+    if not os.path.exists(cache_dir):
+        os.mkdir(cache_dir)
+    
+    unprot_cache_files = []
+    for i, tax_id in enumerate(proteome_taxids):
+        uniprot_url = f"{UNIPROT_SEARCH_URL}query=organism_id:{tax_id}%20AND%20database:panther%20AND%20keyword:Reference%20proteome&format=tsv&size=500&fields={fields}"
+        unprot_cache_file = os.path.join(cache_dir, f'uniprot_cache_{tax_id}.tsv')
+        unprot_cache_files.append(unprot_cache_file)
+        
+        if os.path.exists(unprot_cache_file):
+            with open(unprot_cache_file, 'rb') as file_obj:
+                file_obj.seek(-4, os.SEEK_END)
+                file_end = file_obj.read().decode('UTF8')
+                            
+            if file_end == FILE_END:
+                print(f' .. {i+1} : Using existing cache file {unprot_cache_file} for tax ID {tax_id}. Delete this to force a re-download.')
+                continue
+              
+            else:
+                print(f' .. {i+1} : Cache file {unprot_cache_file} incomplete; recreating.')
+
+        n_lines = 0
+        print(f' .. {i+1} : Downloading primary UniProt data for tax ID {tax_id} to {unprot_cache_file}.')
+ 
+        with open(unprot_cache_file, 'w') as cache_file_obj:
+            write = cache_file_obj.write
+ 
+            for batch in get_uniprot_batch(uniprot_url):
+                lines = batch.text.splitlines()
+ 
+                for line in lines[1:]:
+                    write(line + '\n')
+                    n_lines += 1
+                
+                write(FILE_END)
+                print(f' .. {n_lines:,}', end='\r')
+ 
+        print(f' .. wrote {n_lines:,} lines to {unprot_cache_file}')
+ 
+ 
     alt_acc_id_dict = get_uniprot_primary_ids()
     
     p1 = len(main_fields)
@@ -434,8 +475,6 @@ def add_uniprot_proteins_panther_clusters(panther_class_url, odb_source='Panther
     prot_cluster_rows = []
     cluster_rows = []
     
-    progress = 0
-    
     clust_add_smt = 'INSERT INTO OrthoCluster (id, db_source, db_id, knownness, name, clust_group) VALUES (?, ?, ?, ?, ?, ?)'
     prot_add_smt  = 'INSERT INTO Protein (id, accessions, name, gene_name, orf_name, species, species_id, species_aka,'
     prot_add_smt += 'tax_id, tax_name, tax_lineage, subcell_locs, pubmed_ids, embl_ids, pfam_ids, interpro_ids, '
@@ -443,187 +482,193 @@ def add_uniprot_proteins_panther_clusters(panther_class_url, odb_source='Panther
     prot_add_smt += ' VALUES (%s)' % ', '.join(['?'] * (prot_add_smt.count(',')+1))
     prot_acc_smt  = 'INSERT INTO ProteinAccession (accession, prot_id) VALUES (?, ?)'
     prot_clust_smt = 'INSERT INTO OrthoClusterProteins (clust_id, prot_id) VALUES (?, ?)'
-
-    for batch in get_uniprot_batch(uniprot_url):
-        lines = batch.text.splitlines()
         
-        if not progress:
-            print(lines[0])
-        
-        for line in lines[1:]:
-            row = line.split('\t')
-            prot_id, accession, protein_name, gene_primary, gene_synonym, gene_oln, gene_orf, organism_name, tax_id = row[0:9]
-            lineage, xref_embl, xref_pfam, xref_interpro, xref_panther, go, reviewed, protein_existence, sequence_version, sequence = row[9:p1]
-            org_db_refs = row[p1:p2]
-            cc_vals = row[p2:p3]
-            ft_vals = row[p3:]
-            
-            tax_id = int(tax_id)
-            if tax_id in OBSOLETE_TAXID:
-              tax_id = OBSOLETE_TAXID[tax_id]
-            
-            gene_name = gene_primary or gene_oln or gene_orf 
-            pe = PROTEIN_EXISTENCES[protein_existence]
-            db_section = 'sp' if (reviewed == 'reviewed') else 'tr'
-            
-            fasta_header = f'{db_section}|{accession}|{prot_id} {protein_name} OS={organism_name} OX={tax_id} GN={gene_name} PE={pe} SV={sequence_version}'
-            
-            xref_embl = xref_embl.strip(';') or None
-            xref_pfam = xref_pfam.strip(';') or None
-            xref_interpro = xref_interpro.strip(';') or None
-            #xref_orthodb = xref_orthodb.strip(';') or None            
-            #xref_treefam = xref_treefam.strip(';') or None            
-            #xref_eggnog = xref_eggnog.strip(';') or None
-            #xref_ko = xref_ko.strip(';') or None
-
-            xref_panther = xref_panther.strip(';')
-            
-            if ';' in xref_panther:
-                panther1, panther2 = xref_panther.split(';')
+    for unprot_cache_file in unprot_cache_files:
+        print(r'Inserting data from {unprot_cache_file}')
+    
+        with open(unprot_cache_file, 'r', 2**14) as in_file_obj:
+            n_lines = 0
  
-                if ':SF' in panther1:
-                    panther_fam, panther_sf = panther2, panther1
-                else:
-                    panther_fam, panther_sf = panther1, panther2
-            
-            else:
-                panther_fam = xref_panther
-            
-            scl = cc_vals[6]
-            scl = scl.strip('.')
-            
-            if scl:
-                scl.replace('SUBCELLULAR LOCATION: ', '')
-            
-                if 'Note=' in scl:
-                    scl = scl.split('Note=')[0].strip()
-                        
-                loc_terms = [l.strip().split(';')[0].split(' {ECO:')[0] for l in scl.split('. ')]
-                loc_terms = [l.split(', ')[0].split('.')[0].split(':')[-1].strip() for l in loc_terms if l]
-
-                subcell_locs = ';'.join(_get_uniprot_subcell_locations(loc_terms))
-            
-            else:
-                subcell_locs = None
-            
-            pubmed_ids = []
-            for cc in cc_vals:
-                for pmid in re.findall('PubMed:\d+', cc):
-                    pubmed_ids.append(pmid.split(':')[1])
-            
-            pubmed_ids = ';'.join(pubmed_ids)
-            
-            for odb, xref in zip(ORGANISM_DBS, org_db_refs):
-                if xref:
-                    xref = ';'.join([x.split()[0] for x in xref.strip(';').split(';')])
-                    organism_db_xref = xref
-                    organism_db = odb
-                    break
-            
-            # Get taxon ID
-            if tax_id in tax_info_dict: # Cached previously
-                species, species_id, species_aka, tax_name = tax_info_dict[tax_id]
-            
-            else:
-                smt = 'SELECT parent_id, rank, sci_name FROM NcbiTaxon WHERE tax_id=?'
-                row =  cursor.execute(smt, [tax_id]).fetchone()
+            for line in in_file_obj:
                 
-                if row:
-                    tax_parent_id, tax_rank, tax_name =row
+                if line == FILE_END:
+                  break
+                
+                row = line.split('\t')
+                prot_id, accession, protein_name, gene_primary, gene_synonym, gene_oln, gene_orf, organism_name, tax_id = row[0:9]
+                lineage, xref_embl, xref_pfam, xref_interpro, xref_panther, go, reviewed, protein_existence, sequence_version, sequence = row[9:p1]
+                org_db_refs = row[p1:p2]
+                cc_vals = row[p2:p3]
+                ft_vals = row[p3:]
  
-                    # Get parent species
-                    species_id = tax_id
-                    while tax_rank != 'species':
-                        species_id = tax_parent_id
-                        tax_parent_id, tax_rank, null = cursor.execute(smt, [tax_parent_id]).fetchone()
+                tax_id = int(tax_id)
+                if tax_id in OBSOLETE_TAXID:
+                  tax_id = OBSOLETE_TAXID[tax_id]
  
-                    species = ' '.join(organism_name.split()[:2])
-                    if '(' in species:
-                        species_aka = organism_name.split('(')[1].strip()[:-1]
+                gene_name = gene_primary or gene_oln or gene_orf
+                pe = PROTEIN_EXISTENCES[protein_existence]
+                db_section = 'sp' if (reviewed == 'reviewed') else 'tr'
+ 
+                fasta_header = f'{db_section}|{accession}|{prot_id} {protein_name} OS={organism_name} OX={tax_id} GN={gene_name} PE={pe} SV={sequence_version}'
+ 
+                xref_embl = xref_embl.strip(';') or None
+                xref_pfam = xref_pfam.strip(';') or None
+                xref_interpro = xref_interpro.strip(';') or None
+                #xref_orthodb = xref_orthodb.strip(';') or None
+                #xref_treefam = xref_treefam.strip(';') or None
+                #xref_eggnog = xref_eggnog.strip(';') or None
+                #xref_ko = xref_ko.strip(';') or None
+
+                xref_panther = xref_panther.strip(';')
+ 
+                if ';' in xref_panther:
+                    panther1, panther2 = xref_panther.split(';')[:2]
+ 
+                    if ':SF' in panther1:
+                        panther_fam, panther_sf = panther2, panther1
                     else:
-                        species_aka = None
+                        panther_fam, panther_sf = panther1, panther2
  
-                    if verbose:
-                        print(f'Found species {tax_id}/{species_id} {species}/{species_aka} {tax_name}')
-                    tax_info_dict[tax_id] = species, species_id, species_aka, tax_name
-                
                 else:
-                    print(f'No species info for tax_id {tax_id} at {prot_id}: NCBI taxonomy .dmp files could be out-of-date if this occurs often')
-                    continue
-                
-            accessions = [accession] + alt_acc_id_dict[accession]
-            
-            for acc in accessions:
-                if acc in    duplic_acc:
+                    panther_fam = xref_panther
+ 
+                scl = cc_vals[6]
+                scl = scl.strip('.')
+ 
+                if scl:
+                    scl.replace('SUBCELLULAR LOCATION: ', '')
+ 
+                    if 'Note=' in scl:
+                        scl = scl.split('Note=')[0].strip()
+ 
+                    loc_terms = [l.strip().split(';')[0].split(' {ECO:')[0] for l in scl.split('. ')]
+                    loc_terms = [l.split(', ')[0].split('.')[0].split(':')[-1].strip() for l in loc_terms if l]
+
+                    subcell_locs = ';'.join(_get_uniprot_subcell_locations(loc_terms))
+ 
+                else:
+                    subcell_locs = None
+ 
+                pubmed_ids = []
+                for cc in cc_vals:
+                    for pmid in re.findall('PubMed:\d+', cc):
+                        pubmed_ids.append(pmid.split(':')[1])
+ 
+                pubmed_ids = ';'.join(pubmed_ids)
+ 
+                for odb, xref in zip(ORGANISM_DBS, org_db_refs):
+                    if xref:
+                        xref = ';'.join([x.split()[0] for x in xref.strip(';').split(';')])
+                        organism_db_xref = xref
+                        organism_db = odb
+                        break
+ 
+                # Get taxon ID
+                if tax_id in tax_info_dict: # Cached previously
+                    species, species_id, species_aka, tax_name = tax_info_dict[tax_id]
+ 
+                else:
+                    smt = 'SELECT parent_id, rank, sci_name FROM NcbiTaxon WHERE tax_id=?'
+                    row =  cursor.execute(smt, [tax_id]).fetchone()
+ 
+                    if row:
+                        tax_parent_id, tax_rank, tax_name = row
+ 
+                        # Get parent species
+                        species_id = tax_id
+                        lp = 0
+                        while tax_rank != 'species' and lp < 3:
+                            species_id = tax_parent_id
+                            tax_parent_id, tax_rank, sci_name = cursor.execute(smt, [tax_parent_id]).fetchone()
+                            print(f'Tax lookup {tax_id} : {tax_parent_id} {tax_rank} {sci_name}')
+                            lp += 1
+ 
+                        species = ' '.join(organism_name.split()[:2])
+                        if '(' in species:
+                            species_aka = organism_name.split('(')[1].strip()[:-1]
+                        else:
+                            species_aka = None
+ 
+                        if verbose:
+                            print(f'Found species {tax_id}/{species_id} {species}/{species_aka} {tax_name}')
+                        tax_info_dict[tax_id] = species, species_id, species_aka, tax_name
+ 
+                    else:
+                        print(f'No species info for tax_id {tax_id} at {prot_id}: NCBI taxonomy .dmp files could be out-of-date if this occurs often')
+                        continue
+ 
+                accessions = [accession] + alt_acc_id_dict[accession]
+ 
+                for acc in accessions:
+                    if acc in    duplic_acc:
+                        if verbose:
+                            print(f'Repeated protein accession {acc} refers to {prot_id} and {duplic_acc[acc]}')
+                        continue
+ 
+                    duplic_acc[acc] = prot_id
+                    prot_accession_rows.append((acc, prot_id))
+ 
+                accessions = accessions = ';'.join(accessions)
+ 
+                features = {}
+                for ft_val in ft_vals:
+                    if ft_val:
+                        key = ft_val.split()[0]
+                        count = ft_val.count(key)
+                        features[key] = count
+ 
+                features = ';'.join(['%s:%d' % (x, features[x]) for x in sorted(features)])
+ 
+                if panther_fam not in panther_name_dict:
                     if verbose:
-                        print(f'Repeated protein accession {acc} refers to {prot_id} and {duplic_acc[acc]}')
+                        print(f'PANTHER family {panther_fam} on entry {prot_id} ({species}) does not exist')
                     continue
-             
-                duplic_acc[acc] = prot_id
-                prot_accession_rows.append((acc, prot_id))
-            
-            accessions = accessions = ';'.join(accessions)
-            
+ 
+                panther_db_name = panther_name_dict[panther_fam]
+ 
+                go = go.strip()
+ 
+                if go:
+                    for item in go.strip(']').split(']; '):
+                        term, go_id = item.split('[GO:')
+                        term = term.strip()
+                        go_id = 'GO:' + go_id
+                        go_term_dict[go_id] = term
+ 
+                if panther_fam in cluster_ids:
+                    clust_id = cluster_ids[panther_fam]
+ 
+                else:
+                    clust_id = len(cluster_ids)
+                    cluster_ids[panther_fam] = clust_id
+                    cluster_rows.append((CLUST_ID_CODE % clust_id, odb_source, panther_fam, None, panther_db_name, 0))
+                    #(id, db_source, db_id, knownness, name, clust_group)
 
-            features = {}
-            for ft_val in ft_vals:
-                if ft_val:
-                    key = ft_val.split()[0]
-                    count = ft_val.count(key)
-                    features[key] = count
-             
-            features = ';'.join(['%s:%d' % (x, features[x]) for x in sorted(features)])
-            
-            if panther_fam not in panther_name_dict:
-                if verbose:
-                    print(f'PANTHER family {panther_fam} on entry {prot_id} ({species}) does not exist')
-                continue
-                
-            panther_db_name = panther_name_dict[panther_fam]
-            
-            go = go.strip()
-            
-            if go:
-                for item in go.strip(']').split(']; '):
-                    term, go_id = item.split('[GO:')
-                    term = term.strip()
-                    go_id = 'GO:' + go_id
-                    go_term_dict[go_id] = term
-                                
-            if panther_fam in cluster_ids:
-                clust_id = cluster_ids[panther_fam]
-            
-            else:
-                clust_id = len(cluster_ids)
-                cluster_ids[panther_fam] = clust_id
-                cluster_rows.append((CLUST_ID_CODE % clust_id, odb_source, panther_fam, None, panther_db_name, 0))
-                #(id, db_source, db_id, knownness, name, clust_group) 
-
-            prot_cluster_rows.append((clust_id, prot_id)) # Added after clusters all added
-         
-            prot_rows.append((prot_id, accessions, protein_name, gene_name, gene_orf, species, species_id,
-                              species_aka, tax_id, tax_name, lineage, subcell_locs, pubmed_ids, xref_embl,
-                              xref_pfam, xref_interpro, organism_db_xref, organism_db, panther_fam,
-                              panther_db_name, clust_id, features, fasta_header, sequence))
-            
-            if len(prot_rows) > SQL_CHUNK_SIZE:
-                if cluster_rows:
-                    cursor.executemany(clust_add_smt, cluster_rows)
-                    cluster_rows = []
-            
-                cursor.executemany(prot_add_smt, prot_rows)
-                prot_rows = []
-                
-                cursor.executemany(prot_acc_smt, prot_accession_rows)
-                prot_accession_rows = []
-                
-                cursor.executemany(prot_clust_smt, prot_cluster_rows) # cluster and prot IDs alreadt inserted
-                prot_cluster_rows = []
-                
-                
-        progress += len(lines[1:])
-        
-        print(f'{progress}')
+                prot_cluster_rows.append((clust_id, prot_id)) # Added after clusters all added
+ 
+                prot_rows.append((prot_id, accessions, protein_name, gene_name, gene_orf, species, species_id,
+                                  species_aka, tax_id, tax_name, lineage, subcell_locs, pubmed_ids, xref_embl,
+                                  xref_pfam, xref_interpro, organism_db_xref, organism_db, panther_fam,
+                                  panther_db_name, clust_id, features, fasta_header, sequence))
+ 
+                if len(prot_rows) > SQL_CHUNK_SIZE:
+                    if cluster_rows:
+                        cursor.executemany(clust_add_smt, cluster_rows)
+                        cluster_rows = []
+ 
+                    cursor.executemany(prot_add_smt, prot_rows)
+                    prot_rows = []
+ 
+                    cursor.executemany(prot_acc_smt, prot_accession_rows)
+                    prot_accession_rows = []
+ 
+                    cursor.executemany(prot_clust_smt, prot_cluster_rows) # cluster and prot IDs alreadt inserted
+                    prot_cluster_rows = []
+ 
+                n_lines +=1
+ 
+                if n_lines % 100 == 0:
+                    print(f' .. {n_lines:,}', end='\r')
     
     # Any remaining final, part chunks
     
@@ -638,6 +683,8 @@ def add_uniprot_proteins_panther_clusters(panther_class_url, odb_source='Panther
 
     if prot_cluster_rows:
         cursor.executemany(prot_clust_smt, prot_cluster_rows)
+         
+    print(f'Parsed {n_lines:,} rows')
     
     cursor.close()
     connection.commit()
@@ -787,8 +834,34 @@ def make_tables(db_file_path):
     connection.commit()
     
     print(' .. done')        
-    
 
+
+def download_proteome_taxids(panther_summary_url):
+    
+    print(f'Reading PANTHER proteome species at {panther_summary_url}')
+    req = request.Request(panther_summary_url)
+    pattern = re.compile(r'(?:href|HREF)\s*=\s*"\S+/genome\.jsp\?taxonId=(\d+)"')
+    # E.g. looking in "<a href="/genomes/genome.jsp?taxonId=13333">Amborella trichopoda</a>"
+    
+    tax_ids = []
+    with request.urlopen(req) as stream_in:
+        response = stream_in.read().decode('utf-8')
+        lines = response.split('\n')
+        n = 0
+         
+        for line in lines:
+            match = pattern.search(line)
+ 
+            if match:
+                tax_id = match.group(1)
+                tax_ids.append(tax_id)
+                n += 1
+            
+    print(f'.. found {n} taxonomic IDs')    
+    
+    return tax_ids
+    
+    
 if __name__ == '__main__':
     
     # Directory for storage of data used to fill DB    
@@ -799,6 +872,9 @@ if __name__ == '__main__':
     
     # URL for Gene Ontology eveidence codes
     eco_obo_url = 'https://github.com/evidenceontology/evidenceontology/blob/master/eco.obo'
+    
+    # URL for PANTHER proteomes summary: this doesn't necessarily match the UniProt ref proteomes list
+    panther_summary_url = 'https://www.pantherdb.org/panther/summaryStats.jsp'
     
     # URL for the DIRECTORY containing the latest PANTHER HMM classifications file
     panther_class_url_dir = "http://data.pantherdb.org/ftp/hmm_classifications/current_release/"
@@ -813,6 +889,9 @@ if __name__ == '__main__':
     paths = download_data_files(data_path, eco_obo_url, panther_class_url_dir, uniprot_go_gaf_url, ncbi_taxonomy_url)
     eco_file_path, uniprot_go_gaf_path, panther_class_url, panther_version, tax_names_path, tax_nodes_path = paths
     
+    # Get main PANTHER proteomes species IDs from its summary
+    proteome_taxids = download_proteome_taxids(panther_summary_url)
+    
     # Make a fresh databse file and create tables
     make_tables(db_file_path)
     
@@ -823,7 +902,7 @@ if __name__ == '__main__':
     add_ncbi_taxa(db_file_path, tax_names_path, tax_nodes_path)
     
     # Insert UniProt protein infor where there are PANTHER links; fills protein and orthologue cluster tables
-    go_term_dict = add_uniprot_proteins_panther_clusters(panther_class_url, panther_version)
+    go_term_dict = add_uniprot_proteins_panther_clusters(panther_class_url, proteome_taxids, panther_version, data_path)
     
     # Insert dates for protein GO terms using .gaf file
     add_go_terms_with_dates(db_file_path, uniprot_go_gaf_path, go_term_dict)             

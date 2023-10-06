@@ -1,4 +1,6 @@
 
+FILE_END = 'END\n'
+
 CLUST_ID_CODE = 'UKP%05d'
 
 # K12 Ecoli, Human, mouse,yeast,pombe, arabidopsis,fly,worm,fish,frog
