@@ -299,7 +299,7 @@ def calc_knownness(db_file_path):
     smt = 'SELECT go_id, domain, go_ev_code, prot_id FROM ProteinGoTerm'
     for go_id, domain, go_ev_code, prot_id in cursor.execute(smt):
         if domain != 'C':
-            prot_scores[prot_id] += evidence_weights[go_ev_code]
+            prot_scores[prot_id] += evidence_weights.get(go_ev_code, 0.0)
      
         prot_go_counts[prot_id] += 1
 
@@ -484,7 +484,7 @@ def add_uniprot_proteins_panther_clusters(panther_class_url, proteome_taxids, od
     prot_clust_smt = 'INSERT INTO OrthoClusterProteins (clust_id, prot_id) VALUES (?, ?)'
         
     for unprot_cache_file in unprot_cache_files:
-        print(r'Inserting data from {unprot_cache_file}')
+        print(f'Inserting data from {unprot_cache_file}')
     
         with open(unprot_cache_file, 'r', 2**14) as in_file_obj:
             n_lines = 0
@@ -499,7 +499,8 @@ def add_uniprot_proteins_panther_clusters(panther_class_url, proteome_taxids, od
                 lineage, xref_embl, xref_pfam, xref_interpro, xref_panther, go, reviewed, protein_existence, sequence_version, sequence = row[9:p1]
                 org_db_refs = row[p1:p2]
                 cc_vals = row[p2:p3]
-                ft_vals = row[p3:]
+                ft_vals = [x.strip() for x in row[p3:]]
+                ft_vals = [x for x in ft_vals if x]
  
                 tax_id = int(tax_id)
                 if tax_id in OBSOLETE_TAXID:
@@ -612,10 +613,9 @@ def add_uniprot_proteins_panther_clusters(panther_class_url, proteome_taxids, od
  
                 features = {}
                 for ft_val in ft_vals:
-                    if ft_val:
-                        key = ft_val.split()[0]
-                        count = ft_val.count(key)
-                        features[key] = count
+                    key = ft_val.split()[0]
+                    count = ft_val.count(key)
+                    features[key] = count
  
                 features = ';'.join(['%s:%d' % (x, features[x]) for x in sorted(features)])
  
@@ -629,6 +629,7 @@ def add_uniprot_proteins_panther_clusters(panther_class_url, proteome_taxids, od
                 go = go.strip()
  
                 if go:
+                    
                     for item in go.strip(']').split(']; '):
                         term, go_id = item.split('[GO:')
                         term = term.strip()
@@ -716,8 +717,9 @@ def add_go_terms_with_dates(db_file_path, uniprot_go_gaf_path, go_term_dict):
     n = 0
     protein_go_terms = {}
     protein_pubmed_ids = []
+    unknown_go_terms = set()
     
-    with gzip.open(uniprot_go_gaf_path, 'r',    2**12) as file_obj:
+    with gzip.open(uniprot_go_gaf_path, 'rt',  2**12, encoding='utf-8') as file_obj:
         for line in file_obj:
             if line[0] == '!':
                 continue
@@ -735,7 +737,14 @@ def add_go_terms_with_dates(db_file_path, uniprot_go_gaf_path, go_term_dict):
                 day = int(date_str[6:])
                 source = data[7].split(':')[0]
                 go_domain = data[8] # F/P/C
-                term = go_term_dict[go_id]
+                
+                if go_id in go_term_dict:
+                  term = go_term_dict[go_id]
+                else:
+                  if go_id not in unknown_go_terms:
+                     print(f'GO term {go_id} from GAF file not exposed in UniProt at {prot_id}')
+                     unknown_go_terms.add(go_id)
+                  continue
                 
                 key = (go_id, go_ev_code, prot_id)
                 
@@ -760,6 +769,8 @@ def add_go_terms_with_dates(db_file_path, uniprot_go_gaf_path, go_term_dict):
                         protein_pubmed_ids.append((pmids, prot_id))
                 
                 n += 1
+                if n % 1000 == 0:
+                    print(f"    ..found {n:,}", end='\r')
 
     protein_go_terms = [k+v for k, v in protein_go_terms.items()]
     
