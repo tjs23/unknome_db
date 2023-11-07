@@ -4,8 +4,8 @@ unknome_db
 These scripts create an up-to-date version of the Unknome database, as a relational database in SQLite3 file format.
 A helper script is included to create summary files and charts from a database file, as used on the [Unknome web site](https://unknome.mrc-lmb.cam.ac.uk). These scripts compile the data that is made available on the Unknome web site, but remain separate from the site itself.
 
-The overall principle of the Unknome database is to assign a knownness score to proteins, representing the totality of human knowledge.
-Each protein is placed in a cluster of orthologues based on the [Panther database](https://pantherdb.org/).
+The overall principle of the Unknome database is to assign a knownness score to proteins, representing the amount of human knowledge they have.
+Proteins from the [UniProt](https://www.uniprot.org/) database are placed in a cluster of orthologues based on the [Panther database](https://pantherdb.org/).
 The knowness score is defined as the largest number of [Gene Ontology](http://geneontology.org/) terms that has been assigned to a member of that cluster. Because GO annotations vary in confidence and relevance to function, different types of evidence aree assigned a different weight when calculating the score. 
   
 Installation
