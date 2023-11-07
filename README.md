@@ -14,14 +14,14 @@ Installation
 These scripts work with vanilla Python (v3) and have no requirements outside of the standard library.
 They have no special in stallation requirements and can be run directly from a cloned repository.
 
-If you move the setup_unknome_db.py Python script the `constants.py` and `sql_tables.py` modules must be
+If you move the `setup_unknome_db.py` Python script the `constants.py` and `sql_tables.py` modules must be
 on the import PYTHONPATH.
 
 
 Creating an Unkome Database
 ---------------------------
 
-The setup_unknome_db.py is simply run from the command line using a Python3 interpreter, including the working directory (for storing GO and PANTHER data files etc) and any other command line options (see below).
+The `setup_unknome_db.py` is simply run from the command line using a Python3 interpreter, including the working directory (for storing GO and PANTHER data files etc) and any other command line options (see below).
 
 Typical use:
 
@@ -35,13 +35,17 @@ The input data, from which the Unknome database is created, will be downloaded f
 
 These data, with their default locations, are as follows:
 
-[Gene Ontology evidence codes specifications](https://raw.githubusercontent.com/evidenceontology/evidenceontology/master/eco.obo)
-[UniProt-GO GOA .gaf mapping file](https://ftp.ebi.ac.uk/pub/databases/GO/goa/UNIPROT/goa_uniprot_all.gaf)
-[PANTHER summery of reference proteomes](https://www.pantherdb.org/panther/summaryStats.jsp)
-[PANTHER classifications release]("http://data.pantherdb.org/ftp/hmm_classifications/current_release/)
-[NCBI taxonomy .dmp files](https://ftp.ncbi.nih.gov/pub/taxonomy/new_taxdump/new_taxdump.tar.Z)
+* [Gene Ontology evidence codes specifications](https://raw.githubusercontent.com/evidenceontology/evidenceontology/master/eco.obo)
 
-As time passes the default values for these URLS may no longer work.
+* [UniProt-GO GOA .gaf mapping file](https://ftp.ebi.ac.uk/pub/databases/GO/goa/UNIPROT/goa_uniprot_all.gaf)
+
+* [PANTHER summery of reference proteomes](https://www.pantherdb.org/panther/summaryStats.jsp)
+
+* [PANTHER classifications release]("http://data.pantherdb.org/ftp/hmm_classifications/current_release/)
+
+* [NCBI taxonomy .dmp files](https://ftp.ncbi.nih.gov/pub/taxonomy/new_taxdump/new_taxdump.tar.Z)
+
+As time passes the default values for these URLs may no longer work.
 However, all the URLs may be specified as command line options in the event that they change. 
 
 Output data
@@ -90,42 +94,6 @@ optional arguments:
                   files. Default=https://ftp.ncbi.nih.gov/pub/taxonomy/new_tax
                   dump/new_taxdump.tar.Z
 ```
-
-usage: setup_unknome_db [-h] [-o OUT_DB_FILE] [-f] [-eco FILE_URL]
-                        [-ps WEB_URL] [-pd DIR_URL] [-gaf FILE_URL]
-                        [-tax FILE_URL]
-                        WORKING_DIR
-
-Setup an Unknome database using data from Go and PANTHER to track to the
-knownness of proteins and orthologue familes.
-
-positional arguments:
-  WORKING_DIR     The working directory, into which downloaded data files and
-                  the databse .sqlite file will be stored.
-
-optional arguments:
-  -h, --help      show this help message and exit
-  -o OUT_DB_FILE  Optional output file path to write the SQLite3 database file
-                  to. The default is to create a file in the working
-                  directorly labelled by creation date, of the form
-                  "unknome_db_{date}.sqlite".
-  -f, --force     Whether to force aa re-download of all data files, if
-                  already present.
-  -eco FILE_URL   URL to download evidence code definitions, as used by GO, as
-                  an "eco.obo" file. Default=https://raw.githubusercontent.com
-                  /evidenceontology/evidenceontology/master/eco.obo
-  -ps WEB_URL     URL for PANTHER proteome summary table, to obtain a list of
-                  species.
-                  Default=https://www.pantherdb.org/panther/summaryStats.jsp
-  -pd DIR_URL     URL for the DIRECTORY containing the latest PANTHER HMM
-                  classifications file. Default=http://data.pantherdb.org/ftp/
-                  hmm_classifications/current_release/
-  -gaf FILE_URL   URL for GeneOntology to UniProt linking GOA .gaf file. Defau
-                  lt=https://ftp.ebi.ac.uk/pub/databases/GO/goa/UNIPROT/goa_un
-                  iprot_all.gaf
-  -tax FILE_URL   URL for TAR GZIPPEd archive containing NCBI taxonomy .dmp
-                  files. Default=https://ftp.ncbi.nih.gov/pub/taxonomy/new_tax
-                  dump/new_taxdump.tar.Z
 
 Reference and License
 ---------------------
