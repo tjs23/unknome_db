@@ -14,7 +14,8 @@ GO_EVIDENCE_WEIGHTS = {"EXP": 0.8, "IDA": 0.8, "IPI": 0.8, "IMP": 0.8,
                        "ISA": 0.5, "ISM": 0.5, "IGC": 0.3, "RCA": 0.6,
                        "TAS": 0.9, "NAS": 0.6,  "IC": 1.0,  "ND": 0.0,
                        "IEA": 0.0,  "NR": 0.0, "IRD": 0.0, "IKR": 0.0,
-                       "IBA": 0.5, "IBD": 0.5}
+                       "IBA": 0.5, "IBD": 0.5, "HDA": 0.5, "HMP": 0.5,
+                       "HEP": 0.5, "HGI": 0.5}
 
 SUBCELL_LOC_TERMS = {'vesicle':'ves', 'endoplasmic':'er',
                      'sarcoplasmic':'er', 'microsome':'er',
@@ -45,7 +46,7 @@ UNIPROT_SEARCH_URL = "https://rest.uniprot.org/uniprotkb/search?"
 
 ALT_UNIPROT_ID_URL = 'https://ftp.uniprot.org/pub/databases/uniprot/current%5Frelease/knowledgebase/complete/docs/sec%5Fac.txt'
 
-SQL_CHUNK_SIZE = 500
+SQL_CHUNK_SIZE = 4000
 
 OBSOLETE_TAXID = {342610:3042615, # c.f. UniProt:CCA_PSEA6
                   168810:1718,    # c.f. UniProt:ARGJ_CORCT
