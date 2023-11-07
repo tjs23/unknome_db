@@ -41,7 +41,7 @@ These data, with their default locations, are as follows:
 
 * [PANTHER summery of reference proteomes](https://www.pantherdb.org/panther/summaryStats.jsp)
 
-* [PANTHER classifications release]("http://data.pantherdb.org/ftp/hmm_classifications/current_release/)
+* [PANTHER classifications release](http://data.pantherdb.org/ftp/hmm_classifications/current_release/)
 
 * [NCBI taxonomy .dmp files](https://ftp.ncbi.nih.gov/pub/taxonomy/new_taxdump/new_taxdump.tar.Z)
 
@@ -100,8 +100,8 @@ Reference and License
 
 If you use these scripts in your research please cite:
 
-"Functional unknomics: Systematic screening of conserved genes of unknown"
-function Joao Rocha, Satish Arcot Jayaram, Tim J Stevens, Nadine Muschalik,
+**"Functional unknomics: Systematic screening of conserved genes of unknown function"**
+Joao Rocha, Satish Arcot Jayaram, Tim J Stevens, Nadine Muschalik,
 Rajen D Shah, Sahar Emran, Cristina Robles, Matthew Freeman, Sean Munro
 [PLoS Biol. 2023 Aug; 21(8): e3002222](https://journals.plos.org/plosbiology/article?id=10.1371/journal.pbio.3002222) PMID: [37552676](https://pubmed.ncbi.nlm.nih.gov/37552676/)
 
