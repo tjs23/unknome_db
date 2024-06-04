@@ -7,7 +7,11 @@ A helper script is included to create summary files and charts from a database f
 The overall principle of the Unknome database is to assign a knownness score to proteins, representing the amount of human knowledge they have.
 Proteins from the [UniProt](https://www.uniprot.org/) database are placed in a cluster of orthologues based on the [Panther database](https://pantherdb.org/).
 The knowness score is defined as the largest number of [Gene Ontology](http://geneontology.org/) terms that has been assigned to a member of that cluster. Because GO annotations vary in confidence and relevance to function, different types of evidence aree assigned a different weight when calculating the score. 
-  
+
+
+If you are looking for the scripts that were used in the analysis of *Drosophila* phenotype screens done for the [Unknome paper](https://pubmed.ncbi.nlm.nih.gov/37552676/) please see the [other unknome repository](https://github.com/tjs23/unknome).
+
+
 Installation
 ------------
 
